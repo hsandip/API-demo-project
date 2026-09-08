@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "server": "json-server --port 3001 db.json",
+    "server:start": "json-server db.json",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

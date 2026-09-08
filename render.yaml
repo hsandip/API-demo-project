@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: vite-project-staging-api
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm run server:start
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: NODE_ENV
+        value: production
