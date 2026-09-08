@@ -1,5 +1,5 @@
 import { createContext } from 'react'
-import type { AuthUser } from '../types/user'
+import type { AuthUser } from '../../types/user'
 
 export interface AuthContextValue {
   isAuthenticated: boolean

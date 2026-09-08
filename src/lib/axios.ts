@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { tokenStorage } from '../auth/tokenStorage'
+import { tokenStorage } from '../features/auth/tokenStorage'
 
 export class ApiError extends Error {
   status: number
@@ -32,7 +32,7 @@ httpClient.interceptors.request.use((config) => {
 })
 
 // Local json-server instance backing both the Users CRUD table and image
-// upload/delete (see src/api/users.ts and src/api/upload.ts).
+// upload/delete (see src/services/user.service.ts and upload.service.ts).
 export const localApiClient = axios.create({
   baseURL: requireEnv(import.meta.env.VITE_LOCAL_API_URL, 'VITE_LOCAL_API_URL'),
 })

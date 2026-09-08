@@ -1,4 +1,5 @@
-import { localApiClient, toApiError } from './client'
+import { localApiClient, toApiError } from '../lib/axios'
+import { API_ENDPOINTS } from '../constants/api'
 import type { User, UserInput } from '../types/user'
 
 interface UserListResponse {
@@ -38,7 +39,7 @@ function randomNumericId(users: User[]): string {
 export const usersApi = {
   async list(signal?: AbortSignal): Promise<UserListResponse> {
     try {
-      const { data } = await localApiClient.get<User[]>('/users', { signal })
+      const { data } = await localApiClient.get<User[]>(API_ENDPOINTS.users.list, { signal })
       return { users: data, total: data.length }
     } catch (error) {
       throw toApiError(error)
@@ -47,7 +48,7 @@ export const usersApi = {
 
   async getById(id: string, signal?: AbortSignal): Promise<User> {
     try {
-      const { data } = await localApiClient.get<User>(`/users/${id}`, { signal })
+      const { data } = await localApiClient.get<User>(API_ENDPOINTS.users.detail(id), { signal })
       return data
     } catch (error) {
       throw toApiError(error)
@@ -56,9 +57,9 @@ export const usersApi = {
 
   async create(input: UserInput): Promise<User> {
     try {
-      const { data: existingUsers } = await localApiClient.get<User[]>('/users')
+      const { data: existingUsers } = await localApiClient.get<User[]>(API_ENDPOINTS.users.list)
       const id = randomNumericId(existingUsers)
-      const { data } = await localApiClient.post<User>('/users', { id, ...input })
+      const { data } = await localApiClient.post<User>(API_ENDPOINTS.users.create, { id, ...input })
       return data
     } catch (error) {
       throw toApiError(error)
@@ -67,7 +68,10 @@ export const usersApi = {
 
   async update(id: string, input: UserInput): Promise<User> {
     try {
-      const { data } = await localApiClient.put<User>(`/users/${id}`, nullifyUndefined(input))
+      const { data } = await localApiClient.put<User>(
+        API_ENDPOINTS.users.update(id),
+        nullifyUndefined(input),
+      )
       return data
     } catch (error) {
       throw toApiError(error)
@@ -76,7 +80,7 @@ export const usersApi = {
 
   async remove(id: string): Promise<void> {
     try {
-      await localApiClient.delete(`/users/${id}`)
+      await localApiClient.delete(API_ENDPOINTS.users.remove(id))
     } catch (error) {
       throw toApiError(error)
     }

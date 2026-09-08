@@ -1,4 +1,4 @@
-import type { AuthUser } from '../types/user'
+import type { AuthUser } from '../../types/user'
 
 const ACCESS_TOKEN_KEY = 'auth-access-token'
 const REFRESH_TOKEN_KEY = 'auth-refresh-token'

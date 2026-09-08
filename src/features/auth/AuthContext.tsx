@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { authApi } from '../api/auth'
+import { authApi } from '../../services/auth.service'
 import { tokenStorage } from './tokenStorage'
-import type { AuthUser } from '../types/user'
+import type { AuthUser } from '../../types/user'
 import { AuthContext } from './context'
 import type { AuthContextValue } from './context'
 

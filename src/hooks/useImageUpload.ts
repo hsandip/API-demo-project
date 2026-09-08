@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { uploadApi } from '../api/upload'
-import { ApiError } from '../api/client'
+import { uploadApi } from '../services/upload.service'
+import { ApiError } from '../lib/axios'
 import { validateFile } from '../utils/fileValidation'
 import type { ToastData } from '../components/Toast'
 import type { UploadResult } from '../types/upload'

@@ -1,4 +1,5 @@
-import { localApiClient, toApiError } from './client'
+import { localApiClient, toApiError } from '../lib/axios'
+import { API_ENDPOINTS } from '../constants/api'
 import type { UploadResult } from '../types/upload'
 
 interface StoredImage {
@@ -24,7 +25,7 @@ export const uploadApi = {
       const dataUrl = await readFileAsDataUrl(file)
 
       const { data } = await localApiClient.post<StoredImage>(
-        '/images',
+        API_ENDPOINTS.images.upload,
         { originalName: file.name, dataUrl, mimeType: file.type, size: file.size },
         {
           onUploadProgress: (event) => {
@@ -48,7 +49,7 @@ export const uploadApi = {
 
   async deleteImage(id: string): Promise<void> {
     try {
-      await localApiClient.delete(`/images/${id}`)
+      await localApiClient.delete(API_ENDPOINTS.images.remove(id))
     } catch (error) {
       throw toApiError(error)
     }

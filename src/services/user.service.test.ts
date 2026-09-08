@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nullifyUndefined } from './users'
+import { nullifyUndefined } from './user.service'
 
 describe('nullifyUndefined', () => {
   it('leaves defined values untouched', () => {
