@@ -1,5 +1,8 @@
 import axios from 'axios'
+import type { InternalAxiosRequestConfig } from 'axios'
 import { tokenStorage } from '../features/auth/tokenStorage'
+import { emitSessionExpired } from '../features/auth/authEvents'
+import { API_ENDPOINTS } from '../constants/api'
 
 export class ApiError extends Error {
   status: number
@@ -30,6 +33,57 @@ httpClient.interceptors.request.use((config) => {
   }
   return config
 })
+
+// A single in-flight refresh is shared across every request that hits a 401
+// at the same time, so a burst of concurrent calls doesn't spend the refresh
+// token more than once.
+let refreshPromise: Promise<string> | null = null
+
+async function refreshAccessToken(refreshToken: string): Promise<string> {
+  const { data } = await axios.post<{ accessToken: string; refreshToken: string }>(
+    `${httpClient.defaults.baseURL}${API_ENDPOINTS.auth.refresh}`,
+    { refreshToken },
+  )
+  tokenStorage.updateTokens(data.accessToken, data.refreshToken)
+  return data.accessToken
+}
+
+httpClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (!axios.isAxiosError(error) || error.response?.status !== 401) {
+      return Promise.reject(error)
+    }
+
+    const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
+    if (!originalRequest || originalRequest._retry || originalRequest.url === API_ENDPOINTS.auth.refresh) {
+      tokenStorage.clear()
+      emitSessionExpired()
+      return Promise.reject(error)
+    }
+
+    const refreshToken = tokenStorage.getRefreshToken()
+    if (!refreshToken) {
+      tokenStorage.clear()
+      emitSessionExpired()
+      return Promise.reject(error)
+    }
+
+    originalRequest._retry = true
+    try {
+      refreshPromise ??= refreshAccessToken(refreshToken).finally(() => {
+        refreshPromise = null
+      })
+      const accessToken = await refreshPromise
+      originalRequest.headers.set('Authorization', `Bearer ${accessToken}`)
+      return httpClient(originalRequest)
+    } catch (refreshError) {
+      tokenStorage.clear()
+      emitSessionExpired()
+      return Promise.reject(refreshError)
+    }
+  },
+)
 
 // Local json-server instance backing both the Users CRUD table and image
 // upload/delete (see src/services/user.service.ts and upload.service.ts).

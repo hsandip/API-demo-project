@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../features/auth/useAuth'
 import { ApiError } from '../lib/axios'
 import { Button } from '@/components/ui/button'
@@ -70,7 +70,7 @@ export function LoginPage() {
           />
         </Label>
 
-        <Label className="mb-4 flex flex-col items-stretch gap-1.5">
+        <Label className="mb-1.5 flex flex-col items-stretch gap-1.5">
           <span className="text-sm font-medium text-foreground">Password</span>
           <Input
             type="password"
@@ -80,6 +80,12 @@ export function LoginPage() {
             placeholder="••••••••"
           />
         </Label>
+
+        <p className="mb-4 text-right">
+          <Button asChild variant="link" size="sm" className="h-auto p-0 text-sm">
+            <Link to="/forgot-password">Forgot password?</Link>
+          </Button>
+        </p>
 
         {error && <p className="mb-4 text-[13px] text-destructive">{error}</p>}
 

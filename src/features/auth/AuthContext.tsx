@@ -1,13 +1,25 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { toast } from 'sonner'
 import { authApi } from '../../services/auth.service'
 import { tokenStorage } from './tokenStorage'
+import { onSessionExpired } from './authEvents'
 import type { AuthUser } from '../../types/user'
 import { AuthContext } from './context'
 import type { AuthContextValue } from './context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => tokenStorage.getUser())
+
+  useEffect(() => {
+    return onSessionExpired(() => {
+      setUser((current) => {
+        if (current === null) return current
+        toast.error('Your session has expired. Please sign in again.')
+        return null
+      })
+    })
+  }, [])
 
   const value = useMemo<AuthContextValue>(
     () => ({

@@ -1,6 +1,9 @@
 export const API_ENDPOINTS = {
   auth: {
     login: '/auth/login',
+    refresh: '/auth/refresh',
+    userSearch: '/users/search',
+    userUpdate: (id: number) => `/users/${id}`,
   },
   users: {
     list: '/users',
