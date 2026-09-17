@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../features/auth/useAuth'
+import { useUsers } from '../hooks/useUsers'
 import { usersApi } from '../services/user.service'
 import { ApiError } from '../lib/axios'
 import type { User, UserInput } from '../types/user'
 import { UserTable } from '../components/UserTable'
+import { UsersToolbar } from '../components/UsersToolbar'
+import { PaginationControls } from '../components/PaginationControls'
 import { UserFormModal } from '../components/UserFormModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import type { ToastData } from '../components/Toast'
@@ -26,9 +29,27 @@ export function DashboardPage() {
   const { user: currentUser, logout } = useAuth()
   const navigate = useNavigate()
 
-  const [users, setUsers] = useState<User[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
+  const {
+    users,
+    total,
+    totalPages,
+    page,
+    perPage,
+    isLoading,
+    loadError,
+    searchInput,
+    gender,
+    sortBy,
+    sortOrder,
+    hasActiveFilters,
+    setPage,
+    setPerPage,
+    setSearchInput,
+    setGender,
+    toggleSort,
+    reload,
+    reloadAfterDelete,
+  } = useUsers()
 
   const [modalState, setModalState] = useState<ModalState>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -43,30 +64,6 @@ export function DashboardPage() {
   }
 
   const editRequestIdRef = useRef(0)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    loadUsers(controller.signal)
-    return () => controller.abort()
-  }, [])
-
-  async function loadUsers(signal?: AbortSignal) {
-    setIsLoading(true)
-    setLoadError('')
-    try {
-      const data = await usersApi.list(signal)
-      setUsers(data.users)
-    } catch {
-      // A signal aborted by our own effect cleanup (e.g. React StrictMode's
-      // double-invoke in dev, or a real unmount) isn't a real failure —
-      // checking the signal directly is more reliable here than trying to
-      // detect a "cancel" error type through the ApiError wrapper.
-      if (signal?.aborted) return
-      setLoadError('Failed to load users. Please try again.')
-    } finally {
-      if (!signal?.aborted) setIsLoading(false)
-    }
-  }
 
   function handleLogout() {
     logout()
@@ -95,16 +92,14 @@ export function DashboardPage() {
     setIsSubmitting(true)
     try {
       if (modalState?.mode === 'create') {
-        const created = await usersApi.create(values)
-        setUsers((prev) => [created, ...prev])
+        await usersApi.create(values)
         notify({ type: 'success', message: 'User created successfully.' })
       } else if (modalState?.mode === 'edit') {
-        const id = modalState.user.id
-        const saved = await usersApi.update(id, values)
-        setUsers((prev) => prev.map((u) => (u.id === id ? saved : u)))
+        await usersApi.update(modalState.user.id, values)
         notify({ type: 'success', message: 'User updated successfully.' })
       }
       setModalState(null)
+      reload()
     } catch (error) {
       const message =
         error instanceof ApiError ? `Save failed (${error.status}).` : 'Save failed.'
@@ -119,9 +114,10 @@ export function DashboardPage() {
     setIsDeleting(true)
     try {
       await usersApi.remove(deleteTarget.id)
-      setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id))
       notify({ type: 'success', message: 'User deleted.' })
+      const remainingOnPage = users.length - 1
       setDeleteTarget(null)
+      reloadAfterDelete(remainingOnPage)
     } catch {
       notify({ type: 'error', message: 'Delete failed. Please try again.' })
     } finally {
@@ -148,24 +144,50 @@ export function DashboardPage() {
         </div>
       </header>
 
+      <UsersToolbar
+        searchInput={searchInput}
+        onSearchInputChange={setSearchInput}
+        gender={gender}
+        onGenderChange={setGender}
+        perPage={perPage}
+        onPerPageChange={setPerPage}
+      />
+
       {isLoading && <p className="py-12 text-center text-muted-foreground">Loading users…</p>}
 
       {!isLoading && loadError && (
         <div className="py-8 text-center text-destructive">
           <p className="mb-3">{loadError}</p>
-          <Button type="button" variant="ghost" size="sm" onClick={() => loadUsers()}>
+          <Button type="button" variant="ghost" size="sm" onClick={reload}>
             Retry
           </Button>
         </div>
       )}
 
       {!isLoading && !loadError && (
-        <UserTable
-          users={users}
-          editingId={editingId}
-          onEdit={handleEditClick}
-          onDelete={setDeleteTarget}
-        />
+        <>
+          <UserTable
+            users={users}
+            editingId={editingId}
+            onEdit={handleEditClick}
+            onDelete={setDeleteTarget}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            onSort={toggleSort}
+            emptyMessage={
+              hasActiveFilters
+                ? 'No users match your search or filters. Try adjusting them.'
+                : 'No users yet. Add your first one.'
+            }
+          />
+          <PaginationControls
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            perPage={perPage}
+            onPageChange={setPage}
+          />
+        </>
       )}
 
       {modalState && (

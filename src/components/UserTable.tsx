@@ -1,4 +1,6 @@
-import type { User } from '../types/user'
+import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
+import type { User, UserSortField, SortOrder } from '../types/user'
+import { SORTABLE_COLUMNS } from '../constants/users'
 import { truncateFileName } from '../utils/fileValidation'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,11 +17,55 @@ interface UserTableProps {
   editingId: string | null
   onEdit: (user: User) => void
   onDelete: (user: User) => void
+  sortBy: UserSortField
+  sortOrder: SortOrder
+  onSort: (field: UserSortField) => void
+  emptyMessage: string
 }
 
-export function UserTable({ users, editingId, onEdit, onDelete }: UserTableProps) {
+function SortableHead({
+  field,
+  label,
+  sortBy,
+  sortOrder,
+  onSort,
+}: {
+  field: UserSortField
+  label: string
+  sortBy: UserSortField
+  sortOrder: SortOrder
+  onSort: (field: UserSortField) => void
+}) {
+  const isActive = sortBy === field
+  const Icon = isActive ? (sortOrder === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown
+
+  return (
+    <TableHead>
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-medium text-foreground"
+        aria-label={`Sort by ${label}`}
+      >
+        {label}
+        <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      </button>
+    </TableHead>
+  )
+}
+
+export function UserTable({
+  users,
+  editingId,
+  onEdit,
+  onDelete,
+  sortBy,
+  sortOrder,
+  onSort,
+  emptyMessage,
+}: UserTableProps) {
   if (users.length === 0) {
-    return <p className="py-12 text-center text-muted-foreground">No users yet. Add your first one.</p>
+    return <p className="py-12 text-center text-muted-foreground">{emptyMessage}</p>
   }
 
   return (
@@ -29,9 +75,16 @@ export function UserTable({ users, editingId, onEdit, onDelete }: UserTableProps
           <TableRow>
             <TableHead>Photo</TableHead>
             <TableHead>ID</TableHead>
-            <TableHead>First Name</TableHead>
-            <TableHead>Last Name</TableHead>
-            <TableHead>Email</TableHead>
+            {SORTABLE_COLUMNS.map((column) => (
+              <SortableHead
+                key={column.field}
+                field={column.field}
+                label={column.label}
+                sortBy={sortBy}
+                sortOrder={sortOrder}
+                onSort={onSort}
+              />
+            ))}
             <TableHead>Phone</TableHead>
             <TableHead>Document</TableHead>
             <TableHead className="text-right">Actions</TableHead>

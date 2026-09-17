@@ -1,10 +1,58 @@
 import { localApiClient, toApiError } from '../lib/axios'
 import { API_ENDPOINTS } from '../constants/api'
-import type { User, UserInput } from '../types/user'
+import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, SEARCHABLE_FIELDS } from '../constants/users'
+import type { User, UserInput, UserListParams, UserListResult } from '../types/user'
 
-interface UserListResponse {
-  users: User[]
-  total: number
+// Shape json-server (patched, beta) returns for a list request once `_page`
+// is present — a plain array otherwise. See node_modules/json-server/lib/paginate.js.
+interface JsonServerPage<T> {
+  first: number
+  prev: number | null
+  next: number | null
+  last: number
+  pages: number
+  items: number
+  data: T[]
+}
+
+// Builds the query string for a paginated/searched/filtered/sorted users
+// list request. Exported (and kept pure/side-effect-free) so it can be unit
+// tested without a live server — see user.service.test.ts.
+export function buildUserListQuery(params: Partial<UserListParams>): string {
+  const {
+    page = DEFAULT_PAGE,
+    perPage = DEFAULT_PAGE_SIZE,
+    search = '',
+    gender = 'all',
+    sortBy,
+    sortOrder = 'asc',
+  } = params
+
+  const query = new URLSearchParams()
+  query.set('_page', String(page))
+  query.set('_per_page', String(perPage))
+  if (sortBy) query.set('_sort', sortOrder === 'desc' ? `-${sortBy}` : sortBy)
+
+  // json-server's per-field query filters (`field_contains=`, etc.) only
+  // AND together, so a multi-field "search any of these columns" needs the
+  // raw `_where` JSON escape hatch to express an `or` clause instead.
+  //
+  // Note: plain `{ field: value }` equality is broken in this patched
+  // json-server beta (matchesWhere always returns false for it) — the
+  // `{ eq: value }` operator form must be used instead.
+  const where: Record<string, unknown> = {}
+  if (gender !== 'all') where.gender = { eq: gender }
+
+  const term = search.trim()
+  if (term) {
+    where.or = SEARCHABLE_FIELDS.map((field) => ({ [field]: { contains: term } }))
+  }
+
+  if (Object.keys(where).length > 0) {
+    query.set('_where', JSON.stringify(where))
+  }
+
+  return query.toString()
 }
 
 // json-server's PUT/PATCH send the request body straight through
@@ -37,10 +85,25 @@ function randomNumericId(users: User[]): string {
 }
 
 export const usersApi = {
-  async list(signal?: AbortSignal): Promise<UserListResponse> {
+  async list(params: Partial<UserListParams> = {}, signal?: AbortSignal): Promise<UserListResult> {
     try {
-      const { data } = await localApiClient.get<User[]>(API_ENDPOINTS.users.list, { signal })
-      return { users: data, total: data.length }
+      const queryString = buildUserListQuery(params)
+      const { data } = await localApiClient.get<JsonServerPage<User>>(
+        `${API_ENDPOINTS.users.list}?${queryString}`,
+        { signal },
+      )
+      // The server clamps an out-of-range requested page to the nearest
+      // valid one but doesn't echo the page number back directly — derive
+      // it from prev/next instead of trusting the (possibly stale) request.
+      const currentPage = data.next !== null ? data.next - 1 : data.prev !== null ? data.prev + 1 : 1
+
+      return {
+        users: data.data,
+        total: data.items,
+        page: currentPage,
+        perPage: params.perPage ?? DEFAULT_PAGE_SIZE,
+        totalPages: data.pages,
+      }
     } catch (error) {
       throw toApiError(error)
     }

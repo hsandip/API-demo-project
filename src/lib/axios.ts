@@ -39,7 +39,7 @@ httpClient.interceptors.request.use((config) => {
 // token more than once.
 let refreshPromise: Promise<string> | null = null
 
-async function refreshAccessToken(refreshToken: string): Promise<string> {
+export async function refreshAccessToken(refreshToken: string): Promise<string> {
   const { data } = await axios.post<{ accessToken: string; refreshToken: string }>(
     `${httpClient.defaults.baseURL}${API_ENDPOINTS.auth.refresh}`,
     { refreshToken },

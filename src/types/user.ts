@@ -20,6 +20,27 @@ export interface User {
 
 export type UserInput = Omit<User, 'id'>
 
+export type UserSortField = 'firstName' | 'lastName' | 'email'
+export type SortOrder = 'asc' | 'desc'
+export type GenderFilter = 'all' | 'male' | 'female' | 'other'
+
+export interface UserListParams {
+  page: number
+  perPage: number
+  search: string
+  gender: GenderFilter
+  sortBy: UserSortField
+  sortOrder: SortOrder
+}
+
+export interface UserListResult {
+  users: User[]
+  total: number
+  page: number
+  perPage: number
+  totalPages: number
+}
+
 // authId is DummyJSON's numeric login-session id — a different, unrelated ID
 // domain from the local json-server User.id (string) above. Named
 // distinctly so the two are never mistakenly compared or interchanged.
