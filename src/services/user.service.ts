@@ -68,22 +68,6 @@ export function nullifyUndefined<T extends object>(input: T): Record<string, unk
   return result
 }
 
-// json-server only auto-generates an id when the request body omits one —
-// and since our ids are strings, its auto-generation falls back to random
-// alphanumeric strings rather than numbers. Generating the id ourselves as
-// a random 4-digit number (re-rolling on collision) keeps ids numeric while
-// avoiding the predictability of a sequential counter.
-function randomNumericId(users: User[]): string {
-  const usedIds = new Set(users.map((user) => user.id))
-
-  let candidate: string
-  do {
-    candidate = String(Math.floor(1000 + Math.random() * 9000))
-  } while (usedIds.has(candidate))
-
-  return candidate
-}
-
 export const usersApi = {
   async list(params: Partial<UserListParams> = {}, signal?: AbortSignal): Promise<UserListResult> {
     try {
@@ -120,9 +104,10 @@ export const usersApi = {
 
   async create(input: UserInput): Promise<User> {
     try {
-      const { data: existingUsers } = await localApiClient.get<User[]>(API_ENDPOINTS.users.list)
-      const id = randomNumericId(existingUsers)
-      const { data } = await localApiClient.post<User>(API_ENDPOINTS.users.create, { id, ...input })
+      // No client-generated id: the server assigns a collision-checked
+      // numeric id itself (see server/src/modules/users/users.service.ts
+      // `resolveId`) when the request body omits one.
+      const { data } = await localApiClient.post<User>(API_ENDPOINTS.users.create, input)
       return data
     } catch (error) {
       throw toApiError(error)

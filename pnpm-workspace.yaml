@@ -1,2 +1,3 @@
-patchedDependencies:
-  json-server: patches/json-server.patch
+packages:
+  - '.'
+  - 'server'

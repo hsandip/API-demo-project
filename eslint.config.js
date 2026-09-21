@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // server/ is a separate Node/Express workspace package with its own
+  // tsconfig and lint concerns (no React/browser globals) — linted via its
+  // own toolchain, not this React-focused config.
+  globalIgnores(['dist', 'server']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

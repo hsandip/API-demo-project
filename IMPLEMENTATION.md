@@ -12,8 +12,9 @@ feature changes made afterward.
 - **React Router v7** for routing (`/login`, `/dashboard`, catch-all 404)
 - **Axios** for all HTTP calls, isolated in `src/api/*` — components never call
   `axios`/`fetch` directly
-- **json-server** as a local mock REST database (`db.json`), used for the
-  Users CRUD table and for image/document storage
+- **Express + TypeScript** (`server/`) as the local REST API backing the
+  Users CRUD table and image/document storage — replaces the former
+  json-server setup. See "Backend: Express API (`server/`)" below.
 - **Vitest** for unit tests
 - **Tailwind CSS v4 + shadcn/ui** for all styling — every interactive
   element (`Button`, `Input`, `Label`, `Select`, `Dialog`, `AlertDialog`,
@@ -31,19 +32,118 @@ Two processes are required in development:
 ```bash
 pnpm install
 pnpm dev      # Vite dev server, http://localhost:5173
-pnpm server   # json-server, http://localhost:3001, backed by db.json
+pnpm server   # Express API (server/), http://localhost:4000, backed by Supabase
 ```
+
+`pnpm server` requires a Supabase project — see "Migrating off json-server"
+below for one-time setup.
 
 `pnpm build` / `pnpm preview` still only cover the frontend — `pnpm server`
 must be running separately for any of the Users or Upload features to work
 against a real backend. `pnpm test` runs the Vitest suite.
+
+The migration off json-server is complete: the root `db.json`,
+`patches/json-server.patch`, the `json-server` dependency, and the
+`pnpm server:legacy` script have all been removed. The Express API in
+`server/` is the only local backend now — and it in turn no longer keeps
+its own data in a JSON file; it stores everything in Supabase (hosted
+Postgres). See "Migrating off json-server" below for one-time setup.
+
+## Backend: Express API (`server/`)
+
+A standalone Node/Express workspace package (added as a pnpm workspace
+member alongside the frontend) that replaces json-server as the local REST
+backend, while keeping the exact same endpoint paths and response shapes
+(`/users`, `/images`, the same `_page`/`_per_page`/`_sort`/`_where`
+query-string contract and paginated `{ first, prev, next, last, pages,
+items, data }` response shape) so the frontend's service layer
+(`src/services/user.service.ts`, `src/services/upload.service.ts`) needed no
+code changes — only `VITE_LOCAL_API_URL` moved from port 3001 to 4000.
+
+```
+server/
+  src/
+    config/env.ts        Loads + validates env vars (PORT, HOST, CORS_ORIGIN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    lib/
+      ApiError.ts          Typed HTTP error (status + message), thrown by services
+      asyncHandler.ts       Forwards rejected promises to Express's error middleware
+      supabaseClient.ts       Server-side Supabase client (service_role key — bypasses RLS)
+      queryHelpers.ts         buildPagedResult/applyWhereFilter/parseWhere — json-server-compatible list semantics, translated to PostgREST filters
+    middleware/
+      errorHandler.ts        Central error handler (ApiError, ZodError, and generic 500s) + 404 handler
+      validate.ts              validateBody(schema) — parses/replaces req.body via a Zod schema
+    modules/
+      users/                  routes, controller, service, Zod validation schemas, types
+      images/                 same layering, for image/document upload + delete
+    routes/index.ts          Mounts /health, /users, /images
+    app.ts                    Express app: helmet, cors, morgan, express.json({ limit: '10mb' }), routes, error handling
+    server.ts                 Entry point — starts the HTTP listener
+  supabase/schema.sql        SQL to create the users/images tables (run once in the Supabase SQL Editor)
+  scripts/migrate-json-to-supabase.mjs   One-off importer for the old data/db.json into Supabase
+```
+
+- **Data store**: Supabase (hosted Postgres), accessed via `@supabase/supabase-js`
+  in `lib/supabaseClient.ts`, authenticated with the `service_role` key —
+  the file-backed `data/db.json`/`lib/jsonStore.ts` store has been removed.
+  Tables are created from `server/supabase/schema.sql`; column names are
+  camelCase (quoted identifiers) so the API's JSON shape needed zero mapping
+  code. See "Migrating off json-server" below for setup and data-migration
+  steps.
+- **List queries**: `_where`'s `eq`/`contains`/`or` clauses (see
+  `queryHelpers.ts`'s `applyWhereFilter`) are translated to PostgREST filters
+  (`.eq()`/`.ilike()`/`.or()`) instead of being evaluated in memory, and
+  pagination/sorting use Supabase's `.range()`/`.order()` with an exact
+  `count`, rather than slicing an in-memory array.
+- **User ids**: a client-supplied `id` (see `usersApi.create`'s
+  `randomNumericId()`) is honored if it doesn't collide with an existing
+  row (checked with a query before insert); otherwise the server generates
+  one — the same contract the old json-server patch used to provide.
+- **Validation**: Zod schemas per module (`users.validation.ts`,
+  `images.validation.ts`), applied via `validateBody`/`schema.parse` in each
+  controller. A failed validation surfaces as a `400` with a
+  `{ message, details }` body (`details` is a list of `{ path, message }`).
+- **Errors**: every 4xx/5xx response is `{ message }` (plus `details` where
+  relevant) — matching the shape `toApiError()` in the frontend's
+  `src/lib/axios.ts` already expects, so no frontend error-handling changes
+  were needed either.
+- **CORS**: configured via `CORS_ORIGIN` (comma-separated list), defaulting
+  to `http://localhost:5173`.
+- **Auth is unaffected**: login/password-reset still go straight to the real
+  DummyJSON API via `httpClient` (`src/services/auth.service.ts`) — this was
+  already independent of json-server and stays independent of the new
+  Express API, which only serves `/users` and `/images`.
+- **Deployment**: `render.yaml`'s API service now runs
+  `pnpm run server:build && pnpm run server:start` (compiles then runs
+  `server/dist/server.js`) instead of json-server. `SUPABASE_URL` and
+  `SUPABASE_SERVICE_ROLE_KEY` are set as `sync: false` secrets there.
+
+### Setting up Supabase (one-time)
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In its SQL Editor, run `server/supabase/schema.sql` to create the `users`
+   and `images` tables.
+3. From Project Settings -> API, copy the Project URL and the
+   `service_role` secret key into `server/.env`:
+   ```
+   SUPABASE_URL=https://your-project-ref.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   ```
+4. If you have existing data in `server/data/db.json` from before this
+   migration, run `pnpm --filter server migrate:data` once to copy it into
+   Supabase (upserts by id, safe to re-run). Once confirmed, delete
+   `server/data/db.json` — nothing in the running server reads it anymore.
+5. `pnpm server` now talks to Supabase instead of a local file.
+
+The `service_role` key bypasses Row Level Security and must stay
+server-side only — it's read from `server/.env` (gitignored) and is never
+sent to or used by the frontend.
 
 ### Environment variables (`.env`)
 
 | Variable | Purpose |
 |---|---|
 | `VITE_API_BASE_URL` | Base URL for **login only** (`https://dummyjson.com`) — a real external API used purely for its demo auth endpoint. |
-| `VITE_LOCAL_API_URL` | Base URL for the local json-server instance (`http://localhost:3001`). Used by **both** the Users CRUD API and the image/document upload API. |
+| `VITE_LOCAL_API_URL` | Base URL for the local Express API in `server/` (`http://localhost:4000`). Used by **both** the Users CRUD API and the image/document upload API. |
 
 Both are validated at module-load time in `src/api/client.ts` — a missing or
 misnamed variable throws immediately with a clear message instead of
