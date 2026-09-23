@@ -17,8 +17,8 @@ interface UserTableProps {
   editingId: string | null
   onEdit: (user: User) => void
   onDelete: (user: User) => void
-  sortBy: UserSortField
-  sortOrder: SortOrder
+  sortBy: UserSortField | null
+  sortOrder: SortOrder | null
   onSort: (field: UserSortField) => void
   emptyMessage: string
 }
@@ -32,8 +32,8 @@ function SortableHead({
 }: {
   field: UserSortField
   label: string
-  sortBy: UserSortField
-  sortOrder: SortOrder
+  sortBy: UserSortField | null
+  sortOrder: SortOrder | null
   onSort: (field: UserSortField) => void
 }) {
   const isActive = sortBy === field

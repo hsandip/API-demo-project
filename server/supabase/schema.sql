@@ -21,8 +21,17 @@ create table if not exists public.users (
   age integer,
   gender text,
   image text,
-  document jsonb
+  document jsonb,
+  -- Drives the default "newest first" list ordering (see
+  -- server/src/modules/users/users.service.ts) — not returned to the
+  -- frontend and not one of the user-facing sortable columns.
+  "created_at" timestamptz not null default now()
 );
+
+-- Additive migration for a users table that already existed before
+-- "created_at" was introduced — safe to re-run.
+alter table public.users
+  add column if not exists "created_at" timestamptz not null default now();
 
 create table if not exists public.images (
   id uuid primary key default gen_random_uuid(),

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../features/auth/useAuth'
 import { useUsers } from '../hooks/useUsers'
@@ -49,11 +49,13 @@ export function DashboardPage() {
     toggleSort,
     reload,
     reloadAfterDelete,
+    reloadAfterCreate,
+    patchUserLocally,
+    removeUserLocally,
   } = useUsers()
 
   const [modalState, setModalState] = useState<ModalState>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -63,29 +65,16 @@ export function DashboardPage() {
     else sonnerToast.error(data.message)
   }
 
-  const editRequestIdRef = useRef(0)
-
   function handleLogout() {
     logout()
     navigate('/login', { replace: true })
   }
 
-  async function handleEditClick(user: User) {
-    // Guards against a stale response winning if a second Edit click fires
-    // before the first request resolves (UserTable also disables every Edit
-    // button while one is in flight, so this is a belt-and-suspenders check).
-    const requestId = ++editRequestIdRef.current
-    setEditingId(user.id)
-    try {
-      const fresh = await usersApi.getById(user.id)
-      if (editRequestIdRef.current !== requestId) return
-      setModalState({ mode: 'edit', user: fresh })
-    } catch {
-      if (editRequestIdRef.current !== requestId) return
-      notify({ type: 'error', message: 'Failed to load the latest user data.' })
-    } finally {
-      if (editRequestIdRef.current === requestId) setEditingId(null)
-    }
+  // The row clicked already came from the users list we just fetched, so
+  // there's no need to round-trip a GET /users/:id before opening the modal
+  // — that was a duplicate request on every single Edit click.
+  function handleEditClick(user: User) {
+    setModalState({ mode: 'edit', user })
   }
 
   async function handleFormSubmit(values: UserInput) {
@@ -94,12 +83,23 @@ export function DashboardPage() {
       if (modalState?.mode === 'create') {
         await usersApi.create(values)
         notify({ type: 'success', message: 'User created successfully.' })
+        setModalState(null)
+        // Where a new row lands depends on the current sort/filter/page —
+        // the backend puts it first in the default (unsorted) view, so jump
+        // back to page 1 to actually show it there. Runs in the background
+        // (isLoading only guards the very first load, so this doesn't block
+        // the table).
+        reloadAfterCreate()
       } else if (modalState?.mode === 'edit') {
-        await usersApi.update(modalState.user.id, values)
+        const updated = await usersApi.update(modalState.user.id, values)
+        // Reflect the edit immediately from the response we already have...
+        patchUserLocally(updated.id, updated)
         notify({ type: 'success', message: 'User updated successfully.' })
+        setModalState(null)
+        // ...then resync in the background in case the edit moved the row
+        // across the active sort/filter/page.
+        reload()
       }
-      setModalState(null)
-      reload()
     } catch (error) {
       const message =
         error instanceof ApiError ? `Save failed (${error.status}).` : 'Save failed.'
@@ -111,15 +111,21 @@ export function DashboardPage() {
 
   async function handleDeleteConfirm() {
     if (!deleteTarget) return
+    const targetId = deleteTarget.id
+    const remainingOnPage = users.length - 1
     setIsDeleting(true)
+    // Remove it from the table right away instead of waiting on the
+    // request/reload round trip.
+    removeUserLocally(targetId)
     try {
-      await usersApi.remove(deleteTarget.id)
+      await usersApi.remove(targetId)
       notify({ type: 'success', message: 'User deleted.' })
-      const remainingOnPage = users.length - 1
       setDeleteTarget(null)
       reloadAfterDelete(remainingOnPage)
     } catch {
       notify({ type: 'error', message: 'Delete failed. Please try again.' })
+      // Undo the optimistic removal by resyncing with the server.
+      reload()
     } finally {
       setIsDeleting(false)
     }
@@ -168,7 +174,7 @@ export function DashboardPage() {
         <>
           <UserTable
             users={users}
-            editingId={editingId}
+            editingId={null}
             onEdit={handleEditClick}
             onDelete={setDeleteTarget}
             sortBy={sortBy}

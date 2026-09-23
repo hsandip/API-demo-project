@@ -46,6 +46,13 @@ export const usersService = {
       const descending = query.sort.startsWith('-')
       const field = descending ? query.sort.slice(1) : query.sort
       q = q.order(field, { ascending: !descending })
+    } else {
+      // No explicit column sort requested (the frontend's default,
+      // unsorted view): show the most recently created user first so a
+      // freshly added user lands on top instead of wherever the table's
+      // physical row order happens to put it, and stays there across a
+      // refresh since it's derived from the database, not local state.
+      q = q.order('created_at', { ascending: false })
     }
 
     const start = (query.page - 1) * query.perPage

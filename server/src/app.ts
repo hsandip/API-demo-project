@@ -13,6 +13,13 @@ export function createApp() {
   app.use(
     cors({
       origin: env.corsOrigins,
+      // Every mutating request (PUT/DELETE, or a POST with a JSON body plus
+      // the Authorization header) is a "non-simple" CORS request, so the
+      // browser sends a preflight OPTIONS before it. Without maxAge the
+      // browser re-sends that preflight on every single request, doubling
+      // the network round trips for Add/Edit/Delete. Caching it lets the
+      // browser skip the preflight for the rest of that window.
+      maxAge: 86400,
     }),
   )
   app.use(morgan(isProduction ? 'combined' : 'dev'))

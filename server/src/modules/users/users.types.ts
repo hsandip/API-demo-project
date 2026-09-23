@@ -18,6 +18,10 @@ export interface User {
   gender?: string | null
   image?: string | null
   document?: UserDocument | null
+  // Only used server-side to order the default (unsorted) list view newest
+  // first — see users.service.ts. Not one of the frontend's user-facing
+  // sortable columns.
+  created_at?: string
 }
 
 export type UserInput = Omit<User, 'id'>
