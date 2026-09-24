@@ -152,50 +152,75 @@ secret required anywhere in this project.
 
 ## Authentication
 
-- `src/api/auth.ts` calls `POST {VITE_API_BASE_URL}/auth/login` against the
-  real DummyJSON API (demo credentials: `emilys` / `emilyspass`).
-- `src/auth/tokenStorage.ts` persists the returned access/refresh tokens and
-  user profile in `localStorage` (documented in-code as a demo-only choice —
-  a real app would use an httpOnly cookie set by a server).
-- `src/auth/AuthContext.tsx` + `src/auth/useAuth.ts` expose `isAuthenticated`,
+- `src/services/auth.service.ts` calls `POST {VITE_API_BASE_URL}/auth/login`
+  against the real DummyJSON API (demo credentials: `emilys` / `emilyspass`).
+- **Token storage was hardened** (`src/features/auth/tokenStorage.ts`):
+  - The **access token is kept in an in-memory module variable only** — it is
+    never written to `localStorage`, so it doesn't survive a reload and isn't
+    readable by an XSS payload scanning browser storage.
+  - The **refresh token is still persisted in `localStorage`**, since
+    DummyJSON is a third-party demo API and can't set a real httpOnly cookie
+    for this origin (an in-code comment explains this trade-off).
+  - `src/features/auth/AuthContext.tsx` performs a **silent refresh on boot**:
+    it re-mints an access token from the stored refresh token on mount, so a
+    page reload doesn't force the user back to `/login`.
+  - `src/lib/axios.ts`'s Axios response interceptor **auto-refreshes on a
+    `401`**, with a single shared in-flight refresh promise so concurrent
+    401s don't each trigger their own refresh call, then retries the original
+    request.
+  - A failed refresh clears auth state and shows a "session expired" toast,
+    via `src/features/auth/authEvents.ts` + `AuthContext.tsx`.
+  - This is **not** httpOnly-cookie-based auth (that would require the auth
+    server itself to set the cookie, which DummyJSON doesn't support) — the
+    real improvement over the original design is that the long-lived access
+    token no longer sits in `localStorage` at all.
+- `src/features/auth/AuthContext.tsx` + `useAuth.ts` expose `isAuthenticated`,
   `user`, `login`, `logout` app-wide. `AuthUser.authId` is DummyJSON's numeric
-  session id, deliberately named differently from `User.id` (see
-  "Consistency" below) since the two are unrelated ID domains.
-- `src/auth/ProtectedRoute.tsx` redirects to `/login` when not authenticated;
-  wraps the `/dashboard` route in `App.tsx`.
-- `src/api/client.ts`'s `httpClient` attaches `Authorization: Bearer <token>`
+  session id, deliberately named differently from `User.id` since the two are
+  unrelated ID domains.
+- `src/features/auth/ProtectedRoute.tsx` redirects to `/login` when not
+  authenticated; wraps the `/dashboard` route in `App.tsx`.
+- `src/lib/axios.ts`'s `httpClient` attaches `Authorization: Bearer <token>`
   to every request automatically via an Axios request interceptor.
+- The dashboard header shows the signed-in user: `DashboardPage.tsx` renders
+  `Signed in as {currentUser.username}` using `currentUser` from `useAuth()`
+  — there is no separate Header/Layout component, it's inline in the page.
 
-This auth flow is intentionally **not** connected to the local json-server —
-json-server has no auth support, so login continues to hit the real DummyJSON
-API while everything else (Users CRUD, uploads) runs against the local
-database.
+This auth flow is intentionally **not** connected to the Express/Supabase
+API — that backend has no auth support, so login continues to hit the real
+DummyJSON API while everything else (Users CRUD, uploads) runs against the
+local Express server described above.
 
-## Users CRUD (`/users` on json-server)
+## Users CRUD (`/users` on the Express/Supabase API)
 
-- **Backend**: `db.json`'s `users` array, served by json-server on port 3001.
-- **Service layer**: `src/api/users.ts` (`usersApi.list/getById/create/update/patch/remove`),
-  using a dedicated Axios instance (`localApiClient` in `src/api/client.ts`).
-  `update`/`patch` run inputs through `nullifyUndefined()` first — see the
-  "cleared field" fix below.
-- **UI**: `src/pages/DashboardPage.tsx` orchestrates state and calls the
-  service layer; `src/components/UserTable.tsx` renders the table (with
-  "Photo" and "Document" columns, see below); `src/components/UserFormModal.tsx`
-  is the create/edit form, rendered as a shadcn `Dialog` (supports both a
-  full `PUT` save and a diff-only `PATCH` save of just the changed fields);
+- **Backend**: the `users` table in Supabase, served by the Express API in
+  `server/` on port 4000 (see "Backend: Express API" above) — no longer
+  json-server/`db.json`.
+- **Service layer**: `src/services/user.service.ts` (`usersApi.list/getById/
+  create/update/patch/remove`), using a dedicated Axios instance
+  (`localApiClient` in `src/lib/axios.ts`). `update`/`patch` run inputs
+  through `nullifyUndefined()` first — see the "cleared field" fix below.
+- **UI**: `src/pages/DashboardPage.tsx` orchestrates state via the
+  `useUsers` hook and calls the service layer; `src/components/UserTable.tsx`
+  renders the table (with "Photo" and "Document" columns, see below, and
+  clickable-header column sorting — see "Search, filter, sort, pagination"
+  below); `src/components/UserFormModal.tsx` is the create/edit form,
+  rendered as a shadcn `Dialog` (supports both a full `PUT` save and a
+  diff-only `PATCH` save of just the changed fields);
   `src/components/ConfirmDialog.tsx` (a shadcn `AlertDialog`) gates deletion.
 - **Verified real REST semantics**: `GET /users`, `GET /users/:id`,
   `POST /users`, `PUT /users/:id`, `PATCH /users/:id`, `DELETE /users/:id` all
-  round-trip through the actual local server and persist to `db.json` on disk
+  round-trip through the actual local server and persist to Supabase
   (checked directly, not just via React state).
 - **`User.id` is `string`**, and is now a **random unique 4-digit numeric
-  string generated client-side** (e.g. `"4827"`), not json-server's default
-  nanoid-style random string. See "ID generation" below for why this needed a
-  server-side patch, not just a client-side change.
+  string generated client-side** (e.g. `"4827"`). See "ID generation" below
+  for the history of this (originally worked around a json-server quirk;
+  the Express API honors a client-supplied `id` natively — see "Backend:
+  Express API" above).
 - **`User.image` (optional `string | null`)** holds the uploaded profile
-  image's data URL, set via the Profile Image field in the Add User/Edit User
-  modal (see "Uploads" below). Rendered as a small avatar in `UserTable`'s
-  "Photo" column, or a placeholder person icon when absent.
+  image's public URL, set via the Profile Image field in the Add User/Edit
+  User modal (see "Uploads" below). Rendered as a small avatar in
+  `UserTable`'s "Photo" column, or a placeholder person icon when absent.
 - **`User.document` (optional `UserDocument | null`)** holds the uploaded
   document's `{ url, name, mimeType, size }`, set via the Document & File
   Upload field in the same modal. Rendered in `UserTable`'s "Document" column
@@ -206,6 +231,33 @@ database.
   response overwrite the modal with the wrong user's data (`UserTable` also
   disables every Edit/Delete button while any edit-fetch is in flight, as a
   second layer).
+- **Loading state only gates the first load.** `useUsers.ts` tracks whether
+  data has ever loaded (`hasLoadedOnceRef`) and dedupes identical filter
+  changes (`filtersEqual`), so changing a filter/sort/page no longer
+  re-shows the full-page "Loading users…" spinner and flashes the table —
+  only the very first load does that.
+
+## Search, filter, sort, pagination
+
+The Users table supports server-side search, gender filtering, column
+sorting, and pagination — all driven through the same `_page`/`_per_page`/
+`_sort`/`_where` query contract on the Express API (see "List queries" in
+the Backend section above):
+
+- **UI**: `src/components/UsersToolbar.tsx` — a free-text search `Input`, a
+  gender filter `Select`, and a rows-per-page `Select`. Column sorting is via
+  clickable headers in `UserTable.tsx`, wired through `onSort`/`toggleSort`
+  in `src/hooks/useUsers.ts`. `src/components/PaginationControls.tsx` renders
+  page navigation, driven by `DashboardPage.tsx`.
+- **Query building**: `src/services/user.service.ts`'s `buildUserListQuery`
+  builds `_page`, `_per_page`, `_sort` (`-`-prefixed for descending), and a
+  `_where` object — an `eq` clause for the gender filter, and an `or` of
+  `contains` clauses across `SEARCHABLE_FIELDS` for the free-text search.
+- **Server**: `users.controller.ts` parses these via `queryHelpers.ts`
+  (`parseWhere`/`applyWhereFilter`/`buildPagedResult`) and translates them to
+  PostgREST filters/`.range()`/`.order()` calls against Supabase, returning
+  the same paginated `{ first, prev, next, last, pages, items, data }` shape
+  the frontend already expected.
 
 ### ID generation
 
@@ -241,11 +293,18 @@ seed users (`"1"`, `"2"`, `"3"`) and for new random-numeric-id users.
 Both upload fields live **inside the Add User/Edit User modal**
 (`UserFormModal.tsx`) — Profile image above First Name, Document & File
 Upload directly below the Age/Gender row. Both read and write the **same**
-local `/images` collection in `db.json`, via the same service layer
-(`src/api/upload.ts` → `uploadApi.uploadImage` / `uploadApi.deleteImage`) and
-the same shared hook (`src/hooks/useImageUpload.ts`). There is no external
-image host involved (ImgBB/Imgur were evaluated and rejected — see "Design
-decisions" below).
+`/images` endpoint on the Express API, via the same service layer
+(`src/services/upload.service.ts` → `uploadApi.uploadImage` /
+`uploadApi.deleteImage`) and the same shared hook
+(`src/hooks/useImageUpload.ts`). There is no external image host involved
+(ImgBB/Imgur were evaluated and rejected — see "Design decisions" below).
+
+Files are now stored in **Supabase Storage** (bucket `uploads`), not as
+base64 in the database — see `server/src/modules/images/images.service.ts`.
+The `images` table row's `dataUrl` column holds the file's public Storage
+URL (kept under that column name for backward-compatible response shape,
+even though it's no longer a base64 data URL). Deleting an image also
+removes the Storage object (`storagePathFromPublicUrl`).
 
 > Earlier in this project's history there were three separate upload
 > surfaces on the dashboard itself ("Image Upload Demo", a standalone "File
@@ -257,15 +316,16 @@ decisions" below).
 
 1. The selected `File` is read client-side into a base64 data URL
    (`FileReader.readAsDataURL`).
-2. `POST http://localhost:3001/images` is sent with
-   `{ originalName, dataUrl, mimeType, size }` as a JSON body; json-server
-   assigns an `id` and persists the record to `db.json`.
-3. The response `id`/`mimeType`/`size` are kept alongside the record;
-   `dataUrl` (returned as `location`) is used directly as the `<img src>` (or
-   stored on `User.image` / `User.document.url`) for display — no separate
-   "fetch the file back" step is needed.
-4. Deleting calls `DELETE http://localhost:3001/images/:id`, which removes
-   the record from `db.json`.
+2. `POST {VITE_LOCAL_API_URL}/images` is sent with
+   `{ originalName, dataUrl, mimeType, size }` as a JSON body; the Express
+   API uploads the decoded file to Supabase Storage and persists a record
+   (with the Storage public URL) to the `images` table.
+3. The response `id`/`mimeType`/`size` are kept alongside the record; the
+   returned public URL (as `location`) is used directly as the `<img src>`
+   (or stored on `User.image` / `User.document.url`) for display — no
+   separate "fetch the file back" step is needed.
+4. Deleting calls `DELETE {VITE_LOCAL_API_URL}/images/:id`, which removes
+   both the Storage object and the database record.
 
 ### `useImageUpload` — the shared hook behind both upload fields
 
@@ -433,37 +493,45 @@ Create/Cancel.
 
 ```
 src/
-  api/
-    auth.ts            DummyJSON login
-    client.ts          httpClient (DummyJSON, Bearer auth) + localApiClient (json-server) + env validation
-    upload.ts           uploadApi — file/image upload/delete against json-server /images
-    users.ts             usersApi — full CRUD against json-server /users, nullifyUndefined() for clears, randomNumericId() for create
-  auth/
-    AuthContext.tsx, ProtectedRoute.tsx, context.ts, tokenStorage.ts, useAuth.ts
+  services/
+    auth.service.ts       DummyJSON login/refresh
+    user.service.ts       usersApi — full CRUD against the Express /users API, nullifyUndefined() for clears, randomNumericId() for create, buildUserListQuery() for search/filter/sort/pagination
+    upload.service.ts     uploadApi — file/image upload/delete against the Express /images API
+  lib/
+    axios.ts             httpClient (DummyJSON, Bearer auth + auto-refresh interceptor) + localApiClient (Express API) + env validation
+    utils.ts              cn() — clsx + tailwind-merge, used by every shadcn/ui component
+  features/auth/
+    AuthContext.tsx, ProtectedRoute.tsx, context.ts, tokenStorage.ts (in-memory access token + localStorage refresh token), useAuth.ts, authEvents.ts
   hooks/
-    useImageUpload.ts    shared upload/delete state machine behind both upload fields
+    useImageUpload.ts     shared upload/delete state machine behind both upload fields
+    useUsers.ts           list state, pagination/search/filter/sort, first-load-only loading flag
   components/
     DocumentFileUploadSection.tsx  "Document & File Upload" field (PDF/DOC/DOCX/TXT), rendered inside UserFormModal
     ProfileImageField.tsx          profile image field inside UserFormModal (Add/Edit User)
-    UserTable.tsx (Photo + Document columns), UserFormModal.tsx (shadcn Dialog), ConfirmDialog.tsx (shadcn AlertDialog)
+    UsersToolbar.tsx                search input, gender filter, rows-per-page select
+    PaginationControls.tsx          page navigation
+    UserTable.tsx (Photo + Document columns, sortable headers), UserFormModal.tsx (shadcn Dialog), ConfirmDialog.tsx (shadcn AlertDialog)
     Toast.tsx (ToastData type only — rendering goes through ui/sonner.tsx's <Toaster/>, mounted in App.tsx)
     ErrorPage.tsx, ErrorBoundary.tsx
     ui/                  shadcn/ui primitives: button, input, label, select, dialog, alert-dialog, table, sonner
   pages/
-    LoginPage.tsx, DashboardPage.tsx, NotFoundPage.tsx
+    LoginPage.tsx, DashboardPage.tsx (renders "Signed in as <username>"), NotFoundPage.tsx
   types/
     user.ts (User.image, User.document: UserDocument), upload.ts (UploadResult.mimeType/size)
   utils/
     fileValidation.ts (+ .test.ts)   validateFile, formatFileSize, getFileTypeLabel, truncateFileName — shared by both upload fields and UserTable
-  lib/
-    utils.ts             cn() — clsx + tailwind-merge, used by every shadcn/ui component
+  constants/
   index.css              Tailwind bootstrap + shadcn theme tokens only — no component CSS
-db.json                 json-server database: { users: [...], images: [...] }
-patches/json-server.patch   raises json-server's body-size limit to 10MB + honors a supplied id on create
-vite.config.ts           ignores db.json in the dev-server file watcher (see "Two real bugs" above)
+server/                  Express + Supabase API — see "Backend: Express API" above for its internal layout
 ```
 
 ## What has been verified end-to-end (not just typechecked)
+
+> The list below is a historical record from the json-server/`db.json` phase
+> of this project (before the Supabase migration). It hasn't been re-run
+> against the current Express/Supabase backend — treat claims of "confirmed
+> to mutate `db.json` on disk" as describing the old backend, not the
+> current one.
 
 Every feature below was driven through a real headless browser (Playwright)
 against the actually-running `pnpm dev` + `pnpm server` processes, with
@@ -644,3 +712,23 @@ requested:
     rewritten to Tailwind utility classes, and every native `<input>`
     (including the `type="file"` ones) converted to shadcn's `Input`
     component.
+14. **Backend migrated from json-server to a Supabase-backed Express API.**
+    `db.json`/`patches/json-server.patch` removed. `src/api/*` renamed to
+    `src/services/*` (`user.service.ts`, `upload.service.ts`, plus the new
+    `auth.service.ts`). See "Backend: Express API" and "Migrating off
+    json-server" above.
+15. **Server-side search, gender filtering, column sorting, and pagination
+    added to the Users API and dashboard UI.** New `UsersToolbar.tsx` and
+    `PaginationControls.tsx` components, `useUsers.ts` hook, and
+    `buildUserListQuery()` in `user.service.ts`. See "Search, filter, sort,
+    pagination" above.
+16. **Auth token storage hardened.** The access token moved out of
+    `localStorage` into an in-memory variable, with a silent refresh on
+    boot and an Axios interceptor that auto-refreshes on `401`. See
+    "Authentication" above.
+17. **Header now shows the signed-in user, and a loading-flash bug was
+    fixed.** `DashboardPage.tsx` renders "Signed in as `<username>`";
+    `useUsers.ts` now only shows the full-page loading state on the very
+    first load, instead of on every filter/sort/page change. Image uploads
+    now go to real Supabase Storage instead of being stored as base64 in
+    the database.
