@@ -12,6 +12,11 @@ feature changes made afterward.
 - **React Router v7** for routing (`/login`, `/dashboard`, catch-all 404)
 - **Axios** for all HTTP calls, isolated in `src/api/*` — components never call
   `axios`/`fetch` directly
+- **TanStack Query** (`@tanstack/react-query`) — being introduced incrementally
+  to take over data-fetching/caching/mutation state from the manual
+  `useState`/`useEffect` hooks (`useUsers.ts`, etc.). Axios stays the actual
+  HTTP client; TanStack Query only orchestrates when/how often it's called
+  and caches the results. See "Recent feature changes" for progress.
 - **Express + TypeScript** (`server/`) as the local REST API backing the
   Users CRUD table and image/document storage — replaces the former
   json-server setup. See "Backend: Express API (`server/`)" below.
@@ -732,3 +737,14 @@ requested:
     first load, instead of on every filter/sort/page change. Image uploads
     now go to real Supabase Storage instead of being stored as base64 in
     the database.
+18. **TanStack Query introduced (in progress).** `@tanstack/react-query`
+    added as a workspace dependency; `src/lib/queryClient.ts` creates a
+    single `QueryClient` (default options), and `App.tsx` wraps the whole
+    tree in `QueryClientProvider` (outside `AuthProvider`). This first step
+    is additive only — no existing hook/component has been migrated yet, so
+    `useUsers.ts` and the rest of the manual fetch logic are unchanged and
+    still fully functional. Planned follow-up: migrate GET calls
+    (`usersApi.list`/`getById`) to `useQuery`, and POST/PUT/PATCH/DELETE
+    calls (`usersApi.create`/`update`/`remove`, `uploadApi.uploadImage`/
+    `deleteImage`) to `useMutation` with `invalidateQueries` on success to
+    refetch the affected list.
