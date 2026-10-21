@@ -6,13 +6,18 @@ import { usersApi } from '../services/user.service'
 import { ApiError } from '../lib/axios'
 import type { User, UserInput } from '../types/user'
 import { UserTable } from '../components/UserTable'
+import { UserGridView } from '../components/UserGridView'
 import { UsersToolbar } from '../components/UsersToolbar'
 import { PaginationControls } from '../components/PaginationControls'
 import { UserFormModal } from '../components/UserFormModal'
+import { UserViewModal } from '../components/UserViewModal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import type { ToastData } from '../components/Toast'
 import { Button } from '@/components/ui/button'
 import { toast as sonnerToast } from 'sonner'
+import { ThemeProvider } from '../context/ThemeContext'
+
+type ViewMode = 'table' | 'grid'
 
 const EMPTY_USER: UserInput = {
   firstName: '',
@@ -59,6 +64,16 @@ export function DashboardPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  const [viewMode, setViewMode] = useState<ViewMode>('table')
+
+  const [inlineEditingId, setInlineEditingId] = useState<string | null>(null)
+  const [inlineEditingValues, setInlineEditingValues] = useState<UserInput | null>(null)
+
+  const [viewingUser, setViewingUser] = useState<User | null>(null)
+
+  type ColumnKey = 'photo' | 'id' | 'firstName' | 'lastName' | 'email' | 'phone' | 'document' | 'actions'
+  const [hiddenColumns, setHiddenColumns] = useState<Set<ColumnKey>>(new Set())
 
   function notify(data: ToastData) {
     if (data.type === 'success') sonnerToast.success(data.message)
@@ -131,9 +146,65 @@ export function DashboardPage() {
     }
   }
 
+  function handleInlineEditStart(user: User) {
+    setInlineEditingId(user.id)
+    setInlineEditingValues({
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+      username: user.username,
+      image: user.image,
+    })
+  }
+
+  function handleInlineEditChange<K extends keyof UserInput>(field: K, value: UserInput[K]) {
+    setInlineEditingValues((prev) => (prev ? { ...prev, [field]: value } : null))
+  }
+
+  async function handleInlineEditSave(userId: string) {
+    if (!inlineEditingValues) return
+    setIsSubmitting(true)
+    try {
+      const updated = await usersApi.update(userId, inlineEditingValues)
+      patchUserLocally(updated.id, updated)
+      notify({ type: 'success', message: 'User updated successfully.' })
+      setInlineEditingId(null)
+      setInlineEditingValues(null)
+      reload()
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? `Save failed (${error.status}).` : 'Save failed.'
+      notify({ type: 'error', message })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  function handleInlineEditCancel() {
+    setInlineEditingId(null)
+    setInlineEditingValues(null)
+  }
+
+  function toggleColumnVisibility(column: ColumnKey) {
+    const visibleCount = 8 - hiddenColumns.size
+    if (visibleCount === 1 && !hiddenColumns.has(column)) return
+
+    setHiddenColumns((prev) => {
+      const next = new Set(prev)
+      if (next.has(column)) {
+        next.delete(column)
+      } else {
+        next.add(column)
+      }
+      return next
+    })
+  }
+
   return (
-    <div className="mx-auto max-w-275 px-4 pt-5 pb-12 sm:px-6 sm:pt-8 sm:pb-16">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <ThemeProvider>
+      <div className="mx-auto max-w-275 px-4 pt-5 pb-12 sm:px-6 sm:pt-8 sm:pb-16">
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-foreground">Users</h2>
           {currentUser && (
@@ -157,6 +228,10 @@ export function DashboardPage() {
         onGenderChange={setGender}
         perPage={perPage}
         onPerPageChange={setPerPage}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        hiddenColumns={hiddenColumns}
+        onToggleColumnVisibility={toggleColumnVisibility}
       />
 
       {isLoading && <p className="py-12 text-center text-muted-foreground">Loading users…</p>}
@@ -172,20 +247,42 @@ export function DashboardPage() {
 
       {!isLoading && !loadError && (
         <>
-          <UserTable
-            users={users}
-            editingId={null}
-            onEdit={handleEditClick}
-            onDelete={setDeleteTarget}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            onSort={toggleSort}
-            emptyMessage={
-              hasActiveFilters
-                ? 'No users match your search or filters. Try adjusting them.'
-                : 'No users yet. Add your first one.'
-            }
-          />
+          {viewMode === 'table' ? (
+            <UserTable
+              users={users}
+              editingId={null}
+              onEdit={handleInlineEditStart}
+              onDelete={setDeleteTarget}
+              onView={setViewingUser}
+              sortBy={sortBy}
+              sortOrder={sortOrder}
+              onSort={toggleSort}
+              inlineEditingId={inlineEditingId}
+              inlineEditingValues={inlineEditingValues}
+              onInlineEditChange={handleInlineEditChange}
+              onInlineEditSave={handleInlineEditSave}
+              onInlineEditCancel={handleInlineEditCancel}
+              isSubmitting={isSubmitting}
+              emptyMessage={
+                hasActiveFilters
+                  ? 'No users match your search or filters. Try adjusting them.'
+                  : 'No users yet. Add your first one.'
+              }
+              hiddenColumns={hiddenColumns}
+            />
+          ) : (
+            <UserGridView
+              users={users}
+              editingId={null}
+              onEdit={handleEditClick}
+              onDelete={setDeleteTarget}
+              emptyMessage={
+                hasActiveFilters
+                  ? 'No users match your search or filters. Try adjusting them.'
+                  : 'No users yet. Add your first one.'
+              }
+            />
+          )}
           <PaginationControls
             page={page}
             totalPages={totalPages}
@@ -217,6 +314,14 @@ export function DashboardPage() {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-    </div>
+
+      {viewingUser && (
+        <UserViewModal
+          user={viewingUser}
+          onClose={() => setViewingUser(null)}
+        />
+      )}
+      </div>
+    </ThemeProvider>
   )
 }
