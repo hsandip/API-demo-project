@@ -76,6 +76,18 @@ export const usersApi = {
         `${API_ENDPOINTS.users.list}?${queryString}`,
         { signal },
       )
+
+      // Validate response structure
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid API response: expected object')
+      }
+      if (!Array.isArray(data.data)) {
+        throw new Error('Invalid API response: data array missing')
+      }
+      if (typeof data.items !== 'number' || typeof data.pages !== 'number') {
+        throw new Error('Invalid API response: pagination fields missing')
+      }
+
       // The server clamps an out-of-range requested page to the nearest
       // valid one but doesn't echo the page number back directly — derive
       // it from prev/next instead of trusting the (possibly stale) request.

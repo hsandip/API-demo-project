@@ -4,7 +4,7 @@ export const DEFAULT_PAGE = 1
 export const DEFAULT_PAGE_SIZE = 10
 export const PAGE_SIZE_OPTIONS = [5, 10, 25, 50] as const
 
-export const SEARCH_DEBOUNCE_MS = 400
+export const SEARCH_DEBOUNCE_MS = 300
 
 // Fields the local json-server backend can filter on with a `_contains`
 // clause (see usersApi.list's `_where` query) — kept in one place so the

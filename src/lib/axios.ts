@@ -4,6 +4,10 @@ import { tokenStorage } from '../features/auth/tokenStorage'
 import { emitSessionExpired } from '../features/auth/authEvents'
 import { API_ENDPOINTS } from '../constants/api'
 
+interface ApiErrorResponse {
+  message?: string
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -94,8 +98,13 @@ export const localApiClient = axios.create({
 export function toApiError(error: unknown): ApiError {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status ?? 0
-    const data = error.response?.data as { message?: string } | undefined
-    return new ApiError(data?.message ?? error.message, status)
+    const data = error.response?.data
+    const message = isApiErrorResponse(data) && data.message ? data.message : error.message
+    return new ApiError(message, status)
   }
   return new ApiError('Unexpected error', 0)
+}
+
+function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
+  return typeof value === 'object' && value !== null && 'message' in value
 }

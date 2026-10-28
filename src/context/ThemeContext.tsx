@@ -64,10 +64,16 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
+const VALID_THEMES: Set<ThemeName> = new Set(['purple', 'blue', 'green', 'orange'])
+
+function isValidTheme(value: unknown): value is ThemeName {
+  return typeof value === 'string' && VALID_THEMES.has(value as ThemeName)
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeName>(() => {
     const stored = localStorage.getItem('theme')
-    return (stored as ThemeName) || 'purple'
+    return isValidTheme(stored) ? stored : 'purple'
   })
 
   const setTheme = (newTheme: ThemeName) => {
@@ -95,33 +101,9 @@ function applyTheme(themeName: ThemeName) {
   const colors = THEME_DEFINITIONS[themeName]
   const root = document.documentElement
 
-  // Light mode colors
+  // Always apply light mode colors - don't respond to system dark mode preference
   root.style.setProperty('--primary', colors.primary)
   root.style.setProperty('--ring', colors.ring)
   root.style.setProperty('--accent-soft', colors.accentSoft)
   root.style.setProperty('--accent-soft-foreground', colors.accentSoftForeground)
-
-  // Dark mode colors - update via media query context
-  // We'll use a data attribute approach
-  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-
-  const updateDarkMode = (e?: MediaQueryListEvent) => {
-    const isDark = e ? e.matches : mediaQuery.matches
-    if (isDark) {
-      root.style.setProperty('--primary', colors.primaryDark)
-      root.style.setProperty('--ring', colors.ringDark)
-      root.style.setProperty('--accent-soft', colors.accentSoftDark)
-      root.style.setProperty('--accent-soft-foreground', colors.accentSoftForegroundDark)
-    } else {
-      root.style.setProperty('--primary', colors.primary)
-      root.style.setProperty('--ring', colors.ring)
-      root.style.setProperty('--accent-soft', colors.accentSoft)
-      root.style.setProperty('--accent-soft-foreground', colors.accentSoftForeground)
-    }
-  }
-
-  updateDarkMode()
-  mediaQuery.addEventListener('change', updateDarkMode)
-
-  return () => mediaQuery.removeEventListener('change', updateDarkMode)
 }
